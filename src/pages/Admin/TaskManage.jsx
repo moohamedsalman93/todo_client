@@ -1,6 +1,6 @@
 import { MagnifyingGlassIcon, PencilIcon, PlusIcon, TrashIcon, XCircleIcon, XMarkIcon } from "@heroicons/react/24/solid"
 import { Button, Dialog, DialogBody, DialogFooter, Drawer, IconButton, Input, Radio, Step, Stepper, Tab, Tabs, TabsHeader, Textarea, Typography } from "@material-tailwind/react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { motion } from 'framer-motion'
 import { apiUrl, deleteApi, getApi, postApi } from "../../api/api"
 import defaultprofile from '../../assets/defaultprofile.png'
@@ -23,7 +23,9 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
     const [userData, setUserData] = useState([])
     const [deleteTask, setDeleteTask] = useState(-1);
     const [activeTab, setActiveTab] = useState("all");
+    const [error, setError] = useState(false)
 
+    const inputRef = useRef(null);
 
     const statusValue = ["Pending", "In-prograss", "Completed"];
 
@@ -71,9 +73,14 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
 
     const handleSubmit = () => {
 
+        if (title == '') {
+            setError(true)
+            return
+        }
+
         if (edit === -1) {
 
-            if(!title){
+            if (!title) {
                 toast.error(`Task title is required`)
                 return
             }
@@ -96,8 +103,8 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
             });
         }
         else {
-            
-            if(!title){
+
+            if (!title) {
                 toast.error(`Task title is required`)
                 return
             }
@@ -130,6 +137,7 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
         setPriority('low')
         setAssignedTo(null)
         setDeleteTask(-1)
+        setError(false)
     }
 
     const fetchData = () => {
@@ -182,6 +190,20 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
             });
     }
 
+
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (inputRef.current && !inputRef.current.contains(event.target)) {
+                setIsFocus(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
+
     return (
         <Dialog size={'xl'} open={TaskPopup} className=" relative">
             <DialogBody>
@@ -228,7 +250,7 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
 
                     {taskDataFiltered.length < 1 ? <div className=" w-full h-full justify-center items-center"><NoData /></div> :
                         taskDataFiltered?.map((item, index) =>
-                            <div className={` h-20  p-2 px-4 w-full grid gap-1 grid-cols-8 ${activeTab === 'all' && item?.assignedTo !== null && 'bg-green-50'} items-center border-b hover:bg-green-50 rounded-md`}>
+                            <div className={` h-20  p-2 px-4 w-full grid gap-1 grid-cols-8 ${activeTab === 'all' && item?.assignedTo !== null && 'bg-green-50'} items-center border-b hover:bg-green-50 rounded-md overflow-hidden`}>
                                 <div>
                                     <Typography
                                         variant="small"
@@ -246,7 +268,7 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                                     </Typography>
                                 </div>
 
-                                <div className=' col-span-2 '>
+                                <div className=' col-span-2 pr-2 max-h-full overflow-hidden text-ellipsis w-full'>
                                     <Typography
                                         variant="small"
                                         color="blue-gray"
@@ -257,7 +279,7 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                                     <Typography
                                         variant="small"
                                         color="blue-gray"
-                                        className="font-normal opacity-70"
+                                        className="font-normal opacity-70 "
                                     >
                                         {item?.description}
                                     </Typography>
@@ -309,7 +331,7 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                                         color="blue-gray"
                                         className="font-normal opacity-70"
                                     >
-                                        name : {item?.assignedTo?.name || 'none'}
+                                        name : {item?.assignedTo?.name || 'Not assigned'}
                                     </Typography>
 
                                 </div>
@@ -335,7 +357,8 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                 </Button>
             </DialogFooter>
 
-            {taskDrawer &&
+            {
+                taskDrawer &&
                 <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} transition={{
                     delay: 0.1,
                     duration: 0.3,
@@ -359,7 +382,7 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                                     <label htmlFor="email">
                                         <Typography
                                             variant="small"
-                                            className=" block font-medium text-gray-900"
+                                            className={` block font-medium ${error ? 'text-red-600' : 'text-gray-900'}`}
                                         >
                                             Title
                                         </Typography>
@@ -391,7 +414,7 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                                         </Typography>
                                     </label>
                                     <div className="flex justify-between text-sm px-12">
-                                        <Radio name="priority" label="Low" checked={priority === 'low'} onChange={() => setPriority('Low')} />
+                                        <Radio name="priority" label="Low" checked={priority === 'low'} onChange={() => setPriority('low')} />
                                         <Radio name="priority" label="Medium" checked={priority === 'medium'} onChange={() => setPriority('medium')} />
                                         <Radio name="priority" label="High" checked={priority === 'high'} onChange={() => setPriority('high')} />
                                     </div>
@@ -406,10 +429,10 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                                             Assigned To
                                         </Typography>
                                     </label>
-                                    <div className="flex flex-col items-start justify-between text-sm px-10 mt-2 relative space-y-2">
+                                    <div ref={inputRef} className="flex flex-col items-start justify-between text-sm px-10 mt-2 relative space-y-2">
 
                                         <div className=" flex space-x-2 items-center px-2 border w-full py-1 bg-blue-100 rounded-md  relative">
-                                            <img src={assignedTo && assignedTo?.profilePicture ? apiUrl + '/' + assignedTo?.profilePicture : defaultprofile} alt="" className=" h-10 w-10 rounded-full" />
+                                            <img src={assignedTo && assignedTo?.profilePicture ? assignedTo?.profilePicture : defaultprofile} alt="" className=" h-10 w-10 rounded-full" />
                                             <div>
                                                 <Typography
                                                     variant="small"
@@ -437,9 +460,6 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                                                 value={searchEmployee}
                                                 onChange={(e) => setSearchEmployee(e.target.value)}
                                                 onFocus={() => setIsFocus(true)}
-                                                onBlur={(e) => {
-                                                    setTimeout(() => setIsFocus(false), 100);
-                                                }}
                                                 label="Search the employee"
                                                 icon={<MagnifyingGlassIcon className="h-5 w-5" />}
                                             />
@@ -451,9 +471,10 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                                                         onClick={() => {
                                                             setAssignedTo(item)
                                                             setSearchEmployee('')
+                                                            setIsFocus(false)
                                                         }}
                                                         className=" flex space-x-2 items-center px-2 border-b py-1 hover:bg-green-100 rounded-md cursor-pointer">
-                                                        <img src={item?.profilePicture ? apiUrl + '/' + item?.profilePicture : defaultprofile} alt="" className=" h-10 w-10 rounded-full" />
+                                                        <img src={item?.profilePicture ? item?.profilePicture : defaultprofile} alt="" className=" h-10 w-10 rounded-full" />
                                                         <div>
                                                             <Typography
                                                                 variant="small"
@@ -564,7 +585,8 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                 </motion.div>
             }
 
-            {deleteTask !== -1 &&
+            {
+                deleteTask !== -1 &&
                 <motion.div initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} transition={{
                     delay: 0.1,
                     duration: 0.3,
@@ -607,7 +629,7 @@ function TaskManage({ TaskPopup, setTaskPopup }) {
                 </motion.div>
             }
 
-        </Dialog>
+        </Dialog >
     )
 }
 

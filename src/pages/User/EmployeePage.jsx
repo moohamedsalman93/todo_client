@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom';
 import { deleteApi, getApi, postApi, apiUrl, postApiForm } from '../../api/api';
-import { Typography, Button, Input, Textarea, Radio, Card, CardHeader, CardBody, CardFooter, IconButton, Tooltip, Dialog, DialogBody, DialogFooter } from '@material-tailwind/react';
+import { Typography, Button, Input, Textarea, Radio, Card, CardHeader, CardBody, CardFooter, IconButton, Tooltip, Dialog, DialogBody, DialogFooter, Progress } from '@material-tailwind/react';
 import { ArrowLeftEndOnRectangleIcon, EnvelopeIcon, HomeIcon, IdentificationIcon, PencilIcon, PencilSquareIcon, TrashIcon, UserCircleIcon } from '@heroicons/react/24/solid';
 import defaultprofile from '../../assets/defaultprofile.png'
 import gallery from '../../assets/gallery.png'
+import NoData from '../../utils/NoData';
+import toast from 'react-hot-toast';
+import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
+import { imageDb } from '../../config/firbaseConfig';
 
 function EmployeePage() {
     const navigate = useNavigate();
@@ -17,6 +21,9 @@ function EmployeePage() {
     const [profileImage, setProfileImage] = useState(gallery);
     const [previewImage, setPreviewImage] = useState('');
     const [EmployeePopup, setEmployeePopup] = useState(false)
+    const [error, setError] = useState({ name: false, email: false });
+    const [uploadProgress, setUploadProgress] = useState(0);
+    const [isLoading, setIsLoading] = useState(false)
 
 
     const handleImageChange = (e) => {
@@ -118,37 +125,89 @@ function EmployeePage() {
         setEmail('')
         setPreviewImage('')
         setProfileImage(gallery)
-
+        setError({
+            name: false,
+            email: false
+        })
     }
 
-    const handleSubmitUser = () => {
+    const handleSubmitUser = async () => {
+        setError({ name: name === '', email: email == '' || !email.includes('@gmail.com') })
 
-        const formData = new FormData();
-        formData.append('name', name);
-        formData.append('email', email);
-        if (user) formData.append('id', user?._id);
-        formData.append('isEdit', "true");
-
-
-        if (profileImage && profileImage !== gallery) {
-            formData.append('image', profileImage);
+        if (error.name || error.email || !name || !email) {
+            return
         }
 
-        postApiForm('/register', formData).then(res => {
-            if (res.status >= 200 && res.status < 300) {
-                fetchData(userId)
-                handleClear()
+        setIsLoading(true)
+
+        const data = {
+            name,
+            email,
+            isEdit: true,
+            id: user?._id
+        };
+
+
+        const uploadImage = () => {
+            return new Promise((resolve, reject) => {
+                if (profileImage && profileImage !== gallery) {
+                    try {
+                        const uniqueFilename = profileImage.name;
+                        const storageRef = ref(imageDb, "profilePicture/" + uniqueFilename);
+                        const uploadTask = uploadBytesResumable(storageRef, profileImage);
+
+                        uploadTask.on('state_changed',
+                            (snapshot) => {
+                                const percentCompleted = Math.round((snapshot.bytesTransferred * 100) / snapshot.totalBytes);
+                                setUploadProgress(percentCompleted);
+                            },
+                            (error) => {
+                                console.error('Upload failed', error);
+                                reject(error);
+                            },
+                            async () => {
+                                try {
+                                    const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                                    data.imageUrl = downloadUrl;
+                                    resolve();
+                                } catch (downloadError) {
+                                    console.error('Failed to get download URL', downloadError);
+                                    reject(downloadError);
+                                }
+                            }
+                        );
+                    } catch (err) {
+                        console.error('Unexpected error', err);
+                        reject(err);
+                    }
+                } else {
+                    resolve();
+                }
+            });
+        };
+
+        try {
+            await uploadImage();
+
+            const response = await postApi('/register', data);
+
+            if (response.status >= 200 && response.status < 300) {
+                setIsLoading(false)
+                toast.success('Updated successfully');
+                fetchData(userId);
+                handleClear();
             }
-        }).catch(err => {
+        } catch (err) {
+            setIsLoading(false)
             console.error("Error adding user:", err);
-        });
+        }
     };
 
     const handleEdit = () => {
         setEmployeePopup(true)
         setName(user?.name)
         setEmail(user?.email)
-        setPreviewImage(user?.profilePicture != undefined ? apiUrl + '/' + user?.profilePicture : '')
+        setPreviewImage(user?.profilePicture != undefined ? user?.profilePicture : '')
     }
 
 
@@ -182,7 +241,7 @@ function EmployeePage() {
                     </div>
 
                     <div className=" flex w-full items-center gap-4">
-                        <img src={user?.profilePicture ? apiUrl + '/' + user?.profilePicture : defaultprofile} alt="" className=" h-24 shadow-xl w-24 rounded-full" />
+                        <img src={user?.profilePicture ? user?.profilePicture : defaultprofile} alt="" className=" h-24 shadow-xl w-24 rounded-full" />
                         <div className=" grid grid-cols-3 w-full ">
                             {
                                 userDetailsHead.map((item) =>
@@ -216,9 +275,9 @@ function EmployeePage() {
                 </div>
                 <CardBody className=' w-full'>
 
-                    <div className=' flex flex-col  h-full w-full divide-y-2'>
-                        {
-                            taskData?.map((item, index) =>
+                    <div className=' flex flex-col  h-[32rem]  w-full divide-y-2 overflow-y-auto'>
+                        {taskData?.length < 1 ? <div className=' flex flex-col h-full justify-center'><NoData /></div>
+                            : taskData?.map((item, index) =>
                                 <div className=' h-20  p-2 px-4 w-full grid grid-cols-5 items-center hover:bg-green-50 hover:rounded-md'>
                                     <div>
                                         <Typography
@@ -378,6 +437,11 @@ function EmployeePage() {
                                     </div>
 
                                 </form>
+                                {uploadProgress > 0 &&
+                                    <div className=" flex justify-center">
+                                        <Progress value={uploadProgress} label="Uploading" className=" w-[20rem]" />
+                                    </div>
+                                }
                             </div>
                         </section>
                     </DialogBody>
@@ -391,7 +455,9 @@ function EmployeePage() {
                             <span>Cancel</span>
                         </Button>
                         <Button variant="gradient" color="green" onClick={handleSubmitUser}>
-                            <span>Update</span>
+                            {isLoading ? (<div className=' w-full h-full'>
+                                <div className=' h-4 w-4 border-l-2 border-white rounded-full animate-spin'></div>
+                            </div>) : (<span>Update</span>)}
                         </Button>
                     </DialogFooter>
                 </Dialog>

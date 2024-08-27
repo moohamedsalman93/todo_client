@@ -24,12 +24,12 @@ const Login = () => {
             if (password.length < 8 && password.length > 0) {
                 setMessage('Password lent should atleast 8 in length')
             }
-            else {
+            else {  
                 setMessage('');
             }
         }
 
-    }, [confirmPassword])
+    }, [confirmPassword, password])
 
 
     const handleSubmit = () => {
@@ -37,9 +37,8 @@ const Login = () => {
             if (email === '') {
                 toast.error('Please enter email first')
                 return
-                
-            }
 
+            }
             postApi('/checkuser', {
                 "email": email,
             }).then(res => {
@@ -51,6 +50,12 @@ const Login = () => {
                 toast.error("Email not found");
             });
         } else {
+
+            if (password.length < 8) {
+                setMessage('please enter password');
+                return
+            }
+
             postApi('/login', {
                 "email": email,
                 "password": password
@@ -155,7 +160,7 @@ const Login = () => {
                                         />
                                     </div>
                                 }
-                                {isNew && message !== '' &&
+                                {message !== '' &&
                                     <Typography className=" text-red-600 font-normal text-sm">
                                         {message}
                                     </Typography>

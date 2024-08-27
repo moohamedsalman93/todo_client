@@ -14,17 +14,20 @@ import {
   DialogBody,
   DialogFooter,
   DialogHeader,
+  Progress,
 } from "@material-tailwind/react";
 import { useEffect, useState } from "react";
 import gallery from '../../assets/gallery.png'
 import defaultprofile from '../../assets/defaultprofile.png'
-import { apiUrl, deleteApi, getApi, postApiForm } from "../../api/api";
+import { apiUrl, deleteApi, getApi, postApi, postApiForm } from "../../api/api";
 import { useNavigate } from "react-router-dom";
 import NoData from "../../utils/NoData";
 import TaskManage from "./TaskManage";
 import { motion, AnimatePresence, useAnimation } from 'framer-motion';
 import toast from "react-hot-toast";
-
+import { imageDb } from "../../config/firbaseConfig";
+import { uploadBytes, uploadBytesResumable, ref, getDownloadURL } from "firebase/storage";
+import { v4 as uuidv4 } from 'uuid';
 
 
 
@@ -43,6 +46,7 @@ function AdminPage() {
   const [openImage, setOpenImage] = useState('');
   const [imagePosition, setImagePosition] = useState({ top: 0, left: 0, width: 0, height: 0 });
   const controls = useAnimation();
+  const [error, setError] = useState({ name: false, email: false });
 
 
   const handleImageClick = (imageUrl, event) => {
@@ -122,42 +126,79 @@ function AdminPage() {
     setEmployeePopup(true)
     setName(users[index]?.name)
     setEmail(users[index]?.email)
-    setPreviewImage(users[index]?.profilePicture != undefined ? apiUrl + '/' + users[index]?.profilePicture : '')
+    setPreviewImage(users[index]?.profilePicture != undefined ? users[index]?.profilePicture : '')
   }
 
-  const handleSubmitUser = () => {
+  const handleSubmitUser = async () => {
+    setError({ name: name === '', email: email == '' || !email.includes('@gmail.com') })
 
-    const formData = new FormData();
-    formData.append('name', name);
-    formData.append('email', email);
-    if (users) formData.append('id', users[EditUser]?._id);
-    formData.append('isEdit', EditUser != -1);
-
-
-    if (profileImage && profileImage !== gallery) {
-      formData.append('image', profileImage);
+    if (error.name || error.email || !name || !email) {
+      return
     }
 
-    postApiForm('/register', formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        onUploadProgress: (progressEvent) => {
-          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          setUploadProgress(percentCompleted);
-        },
+    const data = {
+      name,
+      email,
+      isEdit: EditUser !== -1,
+    };
+
+    if (users && users[EditUser]) {
+      data.id = users[EditUser]._id;
+    }
+
+    const uploadImage = () => {
+      return new Promise((resolve, reject) => {
+        if (profileImage && profileImage !== gallery) {
+          try {
+            const uniqueFilename = profileImage.name;
+            const storageRef = ref(imageDb, "profilePicture/" + uniqueFilename);
+            const uploadTask = uploadBytesResumable(storageRef, profileImage);
+
+            uploadTask.on('state_changed',
+              (snapshot) => {
+                const percentCompleted = Math.round((snapshot.bytesTransferred * 100) / snapshot.totalBytes);
+                setUploadProgress(percentCompleted);
+              },
+              (error) => {
+                console.error('Upload failed', error);
+                reject(error);
+              },
+              async () => {
+                try {
+                  const downloadUrl = await getDownloadURL(uploadTask.snapshot.ref);
+                  data.imageUrl = downloadUrl;
+                  resolve();
+                } catch (downloadError) {
+                  console.error('Failed to get download URL', downloadError);
+                  reject(downloadError);
+                }
+              }
+            );
+          } catch (err) {
+            console.error('Unexpected error', err);
+            reject(err);
+          }
+        } else {
+          resolve();
+        }
+      });
+    };
+
+    try {
+      await uploadImage();
+
+      const response = await postApi('/register', data);
+
+      if (response.status >= 200 && response.status < 300) {
+        toast.success(EditUser === -1 ? `${name} added` : 'Updated successfully');
+        fetchData();
+        handleClear();
       }
-    ).then(res => {
-      if (res.status >= 200 && res.status < 300) {
-        toast.success(EditUser === -1 ? name + ' added' : 'Updated successfully')
-        fetchData()
-        handleClear()
-      }
-    }).catch(err => {
+    } catch (err) {
       console.error("Error adding user:", err);
-    });
+    }
   };
+
 
   const handleClear = () => {
     setEditUser(-1)
@@ -166,8 +207,21 @@ function AdminPage() {
     setEmail('')
     setPreviewImage('')
     setProfileImage(gallery)
-
+    setUploadProgress(0)
+    setError({ name: false, email: false })
   }
+
+  const handleNameChange = (e) => {
+    const value = e.target.value;
+    setName(value);
+    setError(prevError => ({ ...prevError, name: value === '' }));
+  };
+
+  const handleEmailChange = (e) => {
+    const value = e.target.value;
+    setEmail(value);
+    setError(prevError => ({ ...prevError, email: value === '' || !value.includes('@gmail.com') }));
+  };
 
 
   return (
@@ -243,7 +297,7 @@ function AdminPage() {
               users?.map((item, index) =>
                 <div className=' h-20  p-2 px-4 w-full grid grid-cols-5 items-center border-b hover:bg-green-50 hover:rounded-md'>
                   <div className=" flex space-x-2 items-center">
-                    <img src={item?.profilePicture ? apiUrl + '/' + item?.profilePicture : defaultprofile} onClick={(e) => handleImageClick(item?.profilePicture ? `${apiUrl}/${item.profilePicture}` : '', e)} alt="" className=" h-10 w-10 rounded-full cursor-pointer hover:scale-90" />
+                    <img src={item?.profilePicture ? item?.profilePicture : defaultprofile} onClick={(e) => handleImageClick(item?.profilePicture ? `${item.profilePicture}` : '', e)} alt="" className=" h-10 w-10 rounded-full cursor-pointer hover:scale-90" />
                     <div>
                       <Typography
                         variant="small"
@@ -354,7 +408,7 @@ function AdminPage() {
                       <label htmlFor="name">
                         <Typography
                           variant="small"
-                          className="mb-2 block font-medium text-gray-900"
+                          className={`mb-2 block font-medium ${error.name ? 'text-red-600' : 'text-gray-900'}`}
                         >
                           Name
                         </Typography>
@@ -362,7 +416,7 @@ function AdminPage() {
                       <Input
                         variant="static"
                         value={name}
-                        onChange={(e) => setName(e.target.value)}
+                        onChange={handleNameChange}
                         id="name"
                         color="gray"
                         size="lg"
@@ -377,7 +431,7 @@ function AdminPage() {
                       <label htmlFor="email">
                         <Typography
                           variant="small"
-                          className="mb-2 block font-medium text-gray-900"
+                          className={`mb-2 block font-medium ${error.email ? 'text-red-600' : 'text-gray-900'}`}
                         >
                           Email
                         </Typography>
@@ -385,7 +439,7 @@ function AdminPage() {
                       <Input
                         variant="static"
                         value={email}
-                        onChange={(e) => setEmail(e.target.value)}
+                        onChange={handleEmailChange}
                         id="email"
                         color="gray"
                         size="lg"
@@ -400,6 +454,11 @@ function AdminPage() {
                   </div>
 
                 </form>
+                {uploadProgress > 0 &&
+                  <div className=" flex justify-center">
+                    <Progress value={uploadProgress} label="Uploading" className=" w-[20rem]" />
+                  </div>
+                }
               </div>
             </section>
           </DialogBody>
@@ -445,7 +504,7 @@ function AdminPage() {
           </DialogFooter>
         </Dialog>
 
-      </Card>
+      </Card >
 
       <AnimatePresence>
         {openImage != '' && (
@@ -493,7 +552,7 @@ function AdminPage() {
       </AnimatePresence>
 
 
-    </div>
+    </div >
   );
 }
 
